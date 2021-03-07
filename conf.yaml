@@ -1,0 +1,8 @@
+leihsurl: https://leihs.hopto.org/
+casurl: https://signon.aau.dk/cas/
+server_addr: :8282
+external_private_key_path: ./keys/external_key_pair.pem
+internal_public_key_path: ./keys/internal_public_key.pem
+https_cert_path: "/etc/letsencrypt/live/{{.LeihsUrl}}/cert.pem"
+https_key_path: "/etc/letsencrypt/live/{{.LeihsUrl}}/privkey.pem"
+
