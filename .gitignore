@@ -3,4 +3,4 @@ steppingstone
 *.pem
 *.crt
 *.key
-conf.yaml
+conf.yml
