@@ -4,3 +4,4 @@ steppingstone
 *.crt
 *.key
 conf.yaml
+app/app

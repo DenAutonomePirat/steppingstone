@@ -29,31 +29,6 @@ type handleLogout struct {
 	config *Config
 }
 
-// Token ...
-type Token struct {
-	jwt.Token
-}
-
-func (config *Config) leihsPublicKey(token *jwt.Token) (key interface{}, err error) {
-	return key, err
-}
-
-//ParseToken ...
-func (config *Config) ParseToken(tokenString string) (token *Token, err error) {
-	jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-		return config.internalPublicKey, nil
-	})
-	return nil, err
-}
-
-// ParseTokenWithClaims ...
-func (config *Config) ParseTokenWithClaims(tokenString string) (token *Token, err error) {
-	jwt.ParseWithClaims(tokenString, &LeihsClaims{}, func(token *jwt.Token) (interface{}, error) {
-		return config.internalPublicKey, nil
-	})
-	return nil, err
-}
-
 // LeihsClaims ....
 type LeihsClaims struct {
 	Email              string `json:"email,omitempty"`
