@@ -28,7 +28,7 @@ var conf = &Config{}
 
 func main() {
 
-	pathToConf := flag.String("p", "./conf.yaml", "Path to yaml config file")
+	pathToConf := flag.String("p", "./conf.yml", "Path to yaml config file")
 	debug := flag.Bool("d", false, "set to true for debug")
 	flag.Parse()
 
@@ -193,7 +193,7 @@ type Config struct {
 }
 
 func (config *Config) info() {
-	s, _ := yaml.Marshal(conf)
+	s, _ := yaml.Marshal(config)
 	log.Infof("\n%s\n", s)
 }
 func (config *Config) loadConfig(path *string) (err error) {
