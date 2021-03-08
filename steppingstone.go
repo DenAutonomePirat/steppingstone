@@ -1,12 +1,7 @@
-package main
+package steppingstone
 
-/*
-build with docker "$ docker run --rm -v "$PWD":/usr/src/myapp -w /usr/src/myapp golang:1.14 go build -v"
-
-*/
 import (
 	"crypto/ecdsa"
-	"flag"
 	"fmt"
 	"io/ioutil"
 	"net/http"
@@ -14,54 +9,170 @@ import (
 	"os"
 	"strings"
 
-	log "github.com/sirupsen/logrus"
-	"gopkg.in/cas.v2"
-
 	"github.com/dgrijalva/jwt-go"
-	"gopkg.in/yaml.v3"
+	log "github.com/sirupsen/logrus"
+
+	"gopkg.in/cas.v1"
+	"gopkg.in/yaml.v2"
 )
 
-type handleLogin struct{}
-type handleLogout struct{}
+// Run runs
+func (config *Config) Run() {
+	log.Fatal(config.server.ListenAndServeTLS(config.HTTPSCertPath, config.HTTPSKeyPath))
 
-var conf = &Config{}
+}
 
-func main() {
+type handleLogin struct {
+	config *Config
+}
+type handleLogout struct {
+	config *Config
+}
 
-	pathToConf := flag.String("p", "./conf.yml", "Path to yaml config file")
-	debug := flag.Bool("d", false, "set to true for debug")
-	flag.Parse()
+// Token ...
+type Token struct {
+	jwt.Token
+}
 
-	if *debug {
-		log.SetLevel(log.DebugLevel)
-		log.Info("Setting loglevel to debug")
+func (config *Config) leihsPublicKey(token *jwt.Token) (key interface{}, err error) {
+	return key, err
+}
+
+//ParseToken ...
+func (config *Config) ParseToken(tokenString string) (token *Token, err error) {
+	jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+		return config.internalPublicKey, nil
+	})
+	return nil, err
+}
+
+// ParseTokenWithClaims ...
+func (config *Config) ParseTokenWithClaims(tokenString string) (token *Token, err error) {
+	jwt.ParseWithClaims(tokenString, &LeihsClaims{}, func(token *jwt.Token) (interface{}, error) {
+		return config.internalPublicKey, nil
+	})
+	return nil, err
+}
+
+// LeihsClaims ....
+type LeihsClaims struct {
+	Email              string `json:"email,omitempty"`
+	Login              string `json:"login,omitempty"`
+	OrgID              string `json:"org_id,omitempty"`
+	Exp                int64  `json:"exp,omitempty"`
+	Iat                int64  `json:"iat,omitempty"`
+	ServerBaseURL      string `json:"server_base_url,omitempty"`
+	ReturnTo           string `json:"return_to,omitempty"`
+	Path               string `json:"path,omitempty"`
+	SignInRequestToken string `json:"sign_in_request_token,omitempty"`
+	Succes             bool   `json:"success,omitempty"`
+	jwt.StandardClaims
+}
+
+//Config ...
+type Config struct {
+	LeihsURL               string `yaml:"leihsurl"`
+	CasURL                 string `yaml:"casurl"`
+	ServerAddr             string `yaml:"server_addr"`
+	ExpernalPrivateKeyPath string `yaml:"external_private_key_path"`
+	InternalPublicKeyPath  string `yaml:"internal_public_key_path"`
+	HTTPSCertPath          string `yaml:"https_cert_path"`
+	HTTPSKeyPath           string `yaml:"https_key_path"`
+	internalPublicKey      *ecdsa.PublicKey
+	externalPrivateKey     *ecdsa.PrivateKey
+	casClient              *cas.Client
+	server                 *http.Server
+	mux                    *http.ServeMux
+}
+
+// Info Prints parameters
+func (config *Config) Info() {
+	s, _ := yaml.Marshal(config)
+	log.Infof("\n%s\n", s)
+}
+
+// LoadConfig accepts path as string ref.
+func (config *Config) LoadConfig(path *string) (err error) {
+	file, err := os.Open(*path)
+	if err != nil {
+		c := Config{
+			InternalPublicKeyPath:  "./keys/internal_public_key.pem",
+			ExpernalPrivateKeyPath: "./keys/external_key_pair.pem",
+			HTTPSCertPath:          "/etc/letsencrypt/live/{{.LeihsUrl}}/cert.pem",
+			HTTPSKeyPath:           "/etc/letsencrypt/live/{{.LeihsUrl}}/privkey.pem",
+		}
+		file, err := os.Create(*path)
+		if err != nil {
+			log.Panic(fmt.Sprint(err.Error()))
+		}
+		defer file.Close()
+		e := yaml.NewEncoder(file)
+		err = e.Encode(&c)
+		if err != nil {
+			return err
+		}
+		return err
+	}
+	defer file.Close()
+
+	data := yaml.NewDecoder(file)
+
+	if err := data.Decode(&config); err != nil {
+		return err
 	}
 
-	err := conf.loadConfig(pathToConf)
+	url, err := url.Parse(config.CasURL)
 	if err != nil {
 		log.Fatalln(err.Error())
 	}
 
-	conf.info()
-
-	url, err := url.Parse(conf.CasURL)
-	if err != nil {
-		log.Fatalln(err.Error())
-	}
-
-	client := cas.NewClient(&cas.Options{
+	config.casClient = cas.NewClient(&cas.Options{
 		URL: url,
 	})
 
-	mux := http.NewServeMux()
-	mux.Handle("/login", &handleLogin{})
-	mux.Handle("/logout", &handleLogout{})
-	server := &http.Server{
-		Addr:    conf.ServerAddr,
-		Handler: client.Handle(mux),
+	if strings.Contains(config.HTTPSCertPath, "{{.LeihsUrl}}") {
+		u, _ := url.Parse(config.LeihsURL)
+		config.HTTPSCertPath = strings.ReplaceAll(config.HTTPSCertPath, "{{.LeihsUrl}}", u.Host)
 	}
 
-	log.Fatal(server.ListenAndServeTLS(conf.HTTPSCertPath, conf.HTTPSKeyPath))
+	if strings.Contains(config.HTTPSKeyPath, "{{.LeihsUrl}}") {
+		u, _ := url.Parse(config.LeihsURL)
+		config.HTTPSKeyPath = strings.ReplaceAll(config.HTTPSKeyPath, "{{.LeihsUrl}}", u.Host)
+	}
+
+	k, err := ioutil.ReadFile(config.InternalPublicKeyPath)
+	if err != nil {
+		return err
+	}
+
+	config.internalPublicKey, err = jwt.ParseECPublicKeyFromPEM(k)
+	if err != nil {
+		return err
+	}
+
+	k, err = ioutil.ReadFile(config.ExpernalPrivateKeyPath)
+	if err != nil {
+		return err
+	}
+
+	config.externalPrivateKey, err = jwt.ParseECPrivateKeyFromPEM(k)
+	if err != nil {
+		return err
+	}
+
+	config.mux = http.NewServeMux()
+	config.mux.Handle("/login", &handleLogin{
+		config: config,
+	})
+	config.mux.Handle("/logout", &handleLogout{
+		config: config,
+	})
+	config.server = &http.Server{
+		Addr:    config.ServerAddr,
+		Handler: config.casClient.Handle(config.mux),
+	}
+	return nil
+
 }
 
 func (h *handleLogout) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -86,7 +197,7 @@ func (h *handleLogin) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	log.Debugf("Recieved token \n%s\n", tokenString)
 
 	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-		return conf.internalPublicKey, nil
+		return h.config.internalPublicKey, nil
 	})
 
 	if err != nil {
@@ -96,7 +207,7 @@ func (h *handleLogin) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	tokenPriv, err := jwt.ParseWithClaims(tokenString, &LeihsClaims{}, func(token *jwt.Token) (interface{}, error) {
-		return conf.internalPublicKey, nil
+		return h.config.internalPublicKey, nil
 	})
 
 	if err != nil {
@@ -129,7 +240,7 @@ func (h *handleLogin) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 			ackToken.Claims = ackClaims
 
-			t, err := ackToken.SignedString(conf.externalPrivateKey)
+			t, err := ackToken.SignedString(h.config.externalPrivateKey)
 			log.Debugf("token for leihs\n%s\n", t)
 			if err != nil {
 				log.Warn(err.Error())
@@ -149,111 +260,5 @@ func (h *handleLogin) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	log.Debugf("redirecting to %s\n", u.String())
 	http.Redirect(w, r, u.String(), http.StatusFound)
-
-}
-
-// getEnv gets a environment variable panics if not set
-func getEnv(key string) string {
-
-	val, ok := os.LookupEnv(key)
-	if !ok {
-		panic(fmt.Sprintf("%s not set\n", key))
-	} else {
-
-		return val
-	}
-}
-
-// LeihsClaims ....
-type LeihsClaims struct {
-	Email              string `json:"email,omitempty"`
-	Login              string `json:"login,omitempty"`
-	OrgID              string `json:"org_id,omitempty"`
-	Exp                int64  `json:"exp,omitempty"`
-	Iat                int64  `json:"iat,omitempty"`
-	ServerBaseURL      string `json:"server_base_url,omitempty"`
-	ReturnTo           string `json:"return_to,omitempty"`
-	Path               string `json:"path,omitempty"`
-	SignInRequestToken string `json:"sign_in_request_token,omitempty"`
-	Succes             bool   `json:"success,omitempty"`
-	jwt.StandardClaims
-}
-
-//Config ...
-type Config struct {
-	LeihsURL               string `yaml:"leihsurl"`
-	CasURL                 string `yaml:"casurl"`
-	ServerAddr             string `yaml:"server_addr"`
-	ExpernalPrivateKeyPath string `yaml:"external_private_key_path"`
-	InternalPublicKeyPath  string `yaml:"internal_public_key_path"`
-	HTTPSCertPath          string `yaml:"https_cert_path"`
-	HTTPSKeyPath           string `yaml:"https_key_path"`
-	internalPublicKey      *ecdsa.PublicKey
-	externalPrivateKey     *ecdsa.PrivateKey
-}
-
-func (config *Config) info() {
-	s, _ := yaml.Marshal(config)
-	log.Infof("\n%s\n", s)
-}
-func (config *Config) loadConfig(path *string) (err error) {
-	file, err := os.Open(*path)
-	if err != nil {
-		c := Config{
-			InternalPublicKeyPath:  "./keys/internal_public_key.pem",
-			ExpernalPrivateKeyPath: "./keys/external_key_pair.pem",
-			HTTPSCertPath:          "/etc/letsencrypt/live/{{.LeihsUrl}}/cert.pem",
-			HTTPSKeyPath:           "/etc/letsencrypt/live/{{.LeihsUrl}}/privkey.pem",
-		}
-		file, err := os.Create(*path)
-		if err != nil {
-			log.Panic(fmt.Sprint(err.Error()))
-		}
-		defer file.Close()
-		e := yaml.NewEncoder(file)
-		err = e.Encode(&c)
-		if err != nil {
-			return err
-		}
-		return err
-	}
-	defer file.Close()
-
-	data := yaml.NewDecoder(file)
-
-	if err := data.Decode(&config); err != nil {
-		return err
-	}
-	if strings.Contains(config.HTTPSCertPath, "{{.LeihsUrl}}") {
-		u, _ := url.Parse(config.LeihsURL)
-		config.HTTPSCertPath = strings.ReplaceAll(config.HTTPSCertPath, "{{.LeihsUrl}}", u.Host)
-	}
-
-	if strings.Contains(config.HTTPSKeyPath, "{{.LeihsUrl}}") {
-		u, _ := url.Parse(config.LeihsURL)
-		config.HTTPSKeyPath = strings.ReplaceAll(config.HTTPSKeyPath, "{{.LeihsUrl}}", u.Host)
-	}
-
-	k, err := ioutil.ReadFile(conf.InternalPublicKeyPath)
-	if err != nil {
-		return err
-	}
-
-	conf.internalPublicKey, err = jwt.ParseECPublicKeyFromPEM(k)
-	if err != nil {
-		return err
-	}
-
-	k, err = ioutil.ReadFile(conf.ExpernalPrivateKeyPath)
-	if err != nil {
-		return err
-	}
-
-	conf.externalPrivateKey, err = jwt.ParseECPrivateKeyFromPEM(k)
-	if err != nil {
-		return err
-	}
-
-	return nil
 
 }
