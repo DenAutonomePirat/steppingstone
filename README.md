@@ -19,7 +19,7 @@ https_cert_path: /etc/letsencrypt/live/{{.LeihsUrl}}/cert.pem
 https_key_path: /etc/letsencrypt/live/{{.LeihsUrl}}/privkey.pem
 ```
 
-![As seen from system admin tab in Leihs](https://github.com/denautonomepirat/steppingstone/authentication system.png)
+![As seen from system admin tab in Leihs](https://github.com/denautonomepirat/steppingstone/authentication_system.png)
 
 
 [Leihs external authentication wiki]https://github.com/leihs/leihs/wiki/external_authentication
