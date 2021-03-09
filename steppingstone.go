@@ -1,9 +1,5 @@
 package main
 
-/*
-build with docker "$ docker run --rm -v "$PWD":/usr/src/myapp -w /usr/src/myapp golang:1.14 go build -v"
-
-*/
 import (
 	"crypto/ecdsa"
 	"flag"
@@ -24,7 +20,7 @@ import (
 type handleLogin struct{}
 type handleLogout struct{}
 
-var conf = &Config{}
+var app = &Config{}
 
 func main() {
 
@@ -37,14 +33,14 @@ func main() {
 		log.Info("Setting loglevel to debug")
 	}
 
-	err := conf.loadConfig(pathToConf)
+	err := app.loadConfig(pathToConf)
 	if err != nil {
 		log.Fatalln(err.Error())
 	}
 
-	conf.info()
+	app.info()
 
-	url, err := url.Parse(conf.CasURL)
+	url, err := url.Parse(app.CasURL)
 	if err != nil {
 		log.Fatalln(err.Error())
 	}
@@ -57,11 +53,11 @@ func main() {
 	mux.Handle("/login", &handleLogin{})
 	mux.Handle("/logout", &handleLogout{})
 	server := &http.Server{
-		Addr:    conf.ServerAddr,
+		Addr:    app.ServerAddr,
 		Handler: client.Handle(mux),
 	}
 
-	log.Fatal(server.ListenAndServeTLS(conf.HTTPSCertPath, conf.HTTPSKeyPath))
+	log.Fatal(server.ListenAndServeTLS(app.HTTPSCertPath, app.HTTPSKeyPath))
 }
 
 func (h *handleLogout) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -86,7 +82,7 @@ func (h *handleLogin) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	log.Debugf("Recieved token \n%s\n", tokenString)
 
 	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-		return conf.internalPublicKey, nil
+		return app.internalPublicKey, nil
 	})
 
 	if err != nil {
@@ -96,7 +92,7 @@ func (h *handleLogin) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	tokenPriv, err := jwt.ParseWithClaims(tokenString, &LeihsClaims{}, func(token *jwt.Token) (interface{}, error) {
-		return conf.internalPublicKey, nil
+		return app.internalPublicKey, nil
 	})
 
 	if err != nil {
@@ -129,7 +125,7 @@ func (h *handleLogin) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 			ackToken.Claims = ackClaims
 
-			t, err := ackToken.SignedString(conf.externalPrivateKey)
+			t, err := ackToken.SignedString(app.externalPrivateKey)
 			log.Debugf("token for leihs\n%s\n", t)
 			if err != nil {
 				log.Warn(err.Error())
@@ -193,7 +189,7 @@ type Config struct {
 }
 
 func (config *Config) info() {
-	s, _ := yaml.Marshal(conf)
+	s, _ := yaml.Marshal(app)
 	log.Infof("\n%s\n", s)
 }
 func (config *Config) loadConfig(path *string) (err error) {
@@ -234,22 +230,22 @@ func (config *Config) loadConfig(path *string) (err error) {
 		config.HTTPSKeyPath = strings.ReplaceAll(config.HTTPSKeyPath, "{{.LeihsUrl}}", u.Host)
 	}
 
-	k, err := ioutil.ReadFile(conf.InternalPublicKeyPath)
+	k, err := ioutil.ReadFile(app.InternalPublicKeyPath)
 	if err != nil {
 		return err
 	}
 
-	conf.internalPublicKey, err = jwt.ParseECPublicKeyFromPEM(k)
+	app.internalPublicKey, err = jwt.ParseECPublicKeyFromPEM(k)
 	if err != nil {
 		return err
 	}
 
-	k, err = ioutil.ReadFile(conf.ExpernalPrivateKeyPath)
+	k, err = ioutil.ReadFile(app.ExpernalPrivateKeyPath)
 	if err != nil {
 		return err
 	}
 
-	conf.externalPrivateKey, err = jwt.ParseECPrivateKeyFromPEM(k)
+	app.externalPrivateKey, err = jwt.ParseECPrivateKeyFromPEM(k)
 	if err != nil {
 		return err
 	}
