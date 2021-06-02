@@ -1,6 +1,7 @@
-/keys
+keys/
 steppingstone
 *.pem
 *.crt
 *.key
 conf.yml
+app/
