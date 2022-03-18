@@ -3,7 +3,7 @@ module github.com/denautonomepirat/steppingstone
 go 1.14
 
 require (
-	github.com/denautonomepirat/leihs v0.0.1-pre
+	github.com/denautonomepirat/leihs v0.0.4-pre
 	github.com/dgrijalva/jwt-go v3.2.0+incompatible
 	github.com/sirupsen/logrus v1.8.1
 	gopkg.in/cas.v2 v2.2.2

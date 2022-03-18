@@ -51,34 +51,39 @@ func main() {
 		LeihsURL: app.LeihsURL,
 	})
 
-	as, err := app.leihs.AuthenticationSystemByName(app.AuthenticationSystem.Name)
-
+	a, err := app.leihs.AuthenticationSystemByID(app.AuthenticationSystem.ID)
 	if err != nil {
-		log.Warn(err)
-		as = app.AuthenticationSystem
-		as.InternalPrivateKey = encodePrivate(app.internalPrivateKey)
-		as.InternalPublicKey = encodePublic(app.internalPrivateKey)
-		as.ExternalPublicKey = encodePublic(app.externalPrivateKey)
-		as.CreatedAt = time.Now()
-		as.UpdatedAt = time.Now()
-		err = app.leihs.AddAuthenticationSystem(as)
+		log.Info(err)
+		a = app.AuthenticationSystem
+		a.InternalPrivateKey = encodePrivate(app.internalPrivateKey)
+		a.InternalPublicKey = encodePublic(app.internalPrivateKey)
+		a.ExternalPublicKey = encodePublic(app.externalPrivateKey)
+		a.CreatedAt = time.Now()
+		a.UpdatedAt = time.Now()
+		log.Info("Creating authentication system")
+		err = app.leihs.AddAuthenticationSystem(a)
 		if err != nil {
 			log.Warn(err)
 		}
 	}
 	//Set app.auth.. for later ref.
-	app.authenticationSystem, err = app.leihs.AuthenticationSystemByName(app.AuthenticationSystem.Name)
+	app.authenticationSystem, err = app.leihs.AuthenticationSystemByID(app.AuthenticationSystem.ID)
 	if err != nil {
 		log.Fatalf("Failed to set up authenticationSystem: %s\n", err.Error())
 	}
-	g := &leihs.Group{
-		Name:        app.authenticationSystem.Name,
-		Description: "Authentication group for system",
-	}
-	err = app.leihs.AddGroup(g)
+	gr, err := app.leihs.GroupByName(app.authenticationSystem.Name)
 	if err != nil {
-		log.Warn(err)
+
+		gr = &leihs.Group{
+			Name:        app.authenticationSystem.Name,
+			Description: "Authentication group for system",
+		}
+		err = app.leihs.AddGroup(gr)
+		if err != nil {
+			log.Warn(err)
+		}
 	}
+
 	app.group, err = app.leihs.GroupByName(app.authenticationSystem.Name)
 	if err != nil {
 		log.Fatalf("Failed to set up group: %s\n", err.Error())
@@ -95,7 +100,8 @@ func main() {
 	}
 
 	client := cas.NewClient(&cas.Options{
-		URL: url,
+		URL:         url,
+		SendService: true,
 	})
 
 	mux := http.NewServeMux()
@@ -105,6 +111,8 @@ func main() {
 		Addr:    app.serverURL.Host,
 		Handler: client.Handle(mux),
 	}
+	log.Infof("Listening on: %s", app.serverURL)
+
 	if app.serverURL.Scheme == "https" {
 		log.Fatal(server.ListenAndServeTLS(app.HTTPSCertPath, app.HTTPSKeyPath))
 	} else {
@@ -125,7 +133,7 @@ func (h *handleLogin) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	if !ok || len(tokens[0]) < 1 {
 		http.Error(w, "No token", http.StatusBadRequest)
-		log.Debug("No token")
+		log.Warn("No token")
 		return
 	}
 
@@ -164,8 +172,7 @@ func (h *handleLogin) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			//check if user exists otherwise upsert with minimal user
 			user, err := app.leihs.FindUser(claims.Email)
 			if err != nil {
-				log.Debug(err.Error())
-
+				log.Info("Creating user")
 				user = &leihs.User{
 					Email:                 claims.Email,
 					AccountEnabled:        true,
@@ -179,6 +186,9 @@ func (h *handleLogin) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 					log.Warn(err)
 				}
 				user, err = app.leihs.FindUser(claims.Email)
+				if err != nil {
+					log.Warnf("Failed to create user: %s", err.Error())
+				}
 
 			}
 
